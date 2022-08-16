@@ -1,0 +1,123 @@
+library(Seurat)
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(dplyr)
+
+### GSE157474小鼠角膜数据分析
+# 导入原始数据
+gse.data <- fread("GSE157474_Corneal_Limbus_count_matrix.txt", header = T, sep = "\t", data.table = F, fill = T)
+rownames(gse.data) <- gse.data[,1]
+gse.data <- gse.data[,-1]
+# 创建Seurat对象，数据归一化处理
+gse <- CreateSeuratObject(gse.data, min.cells = 3, min.features = 200, project = "gse")
+gse <- NormalizeData(gse, normalization.method = "LogNormalize", scale.factor = 10000)
+gse.genes <- rownames(gse)
+# 导入meta.data
+new.meta <- read.table("GSE157474_Corneal_Limbus_cell_metadata.txt", header = T, row.names = 1, sep = "\t")
+# 提取免疫细胞并降维聚类
+new.meta <- new.meta[names(Idents(gse)),]
+Idents(gse) <- new.meta$cluster
+ImCsub <- subset(gse, idents = "ImC")
+ImCsub <- FindVariableFeatures(ImCsub, selection.method = "vst", nfeatures = 2000)
+ImCsub <- ScaleData(ImCsub, features = gse.genes)
+ImCsub <- RunPCA(ImCsub, features = VariableFeatures(object = ImCsub))
+ImCsub <- FindNeighbors(object = ImCsub, dims = 1:10)
+ImCsub <- FindClusters(object = ImCsub, resolution = 0.5)
+ImCsub <- RunUMAP(ImCsub, dims = 1:10)
+ImCsub <- RunTSNE(ImCsub, dims = 1:10)
+# 定义各免疫细胞亚群
+VlnPlot(ImCsub, features = c("CD2", "CD3E", "CD3D", "CD79A", "CD79B", "CD19", "KLRC1", "KLRD1", "NKG7", "FCER1A", "CST3", "LAMP3", "CD14", "LYZ", "S100A8", "S100A9", "CD68", "CD163", "FCGR3A", "CD1C", "GATA2", "TPSAB1", "TPSB2"))
+marker1 <- FindMarkers(ImCsub, ident.1 = 1, min.pct = 0.25)
+marker2 <- FindMarkers(ImCsub, ident.1 = 2, min.pct = 0.25)
+marker6 <- FindMarkers(ImCsub, ident.1 = 6, min.pct = 0.25)
+marker7 <- FindMarkers(ImCsub, ident.1 = 7, min.pct = 0.25)
+marker8 <- FindMarkers(ImCsub, ident.1 = 8, min.pct = 0.25)
+ImCsub <- RenameIdents(ImCsub, "0" = "T cell", "1" = "CCL3+ Myeloid", "2" = "SELENOP+ Myeloid", "3" = "Monocyte", "4" = "Dendritic cell", "5" = "Mast cell", "6" = "PI3+ Myeloid", "7" = "LPAR1+ Myeloid", "8" = "LAMA3+ Myeloid")
+# 查看每群的细胞数量
+table(Idents(ImCsub))
+# 数据可视化
+DimPlot(ImCsub, reduction = "umap", label = TRUE)
+DimPlot(ImCsub, reduction = "tsne", label = TRUE)
+DotPlot(ImCsub, features = c("CD2", "CD3D", "CD3E", "LAMP3", "GATA2", "TPSAB1", "TPSB2", "CD68", "CD14", "CCL3", "SELENOP", "PI3", "LPAR1", "LAMA3")) + RotatedAxis()
+
+
+### SCP1614小鼠结膜数据分析
+# 导入原始数据
+scp.data <- Read10X(data.dir = "SCP1614_m_conj/")
+# 创建Seurat对象
+scp <- CreateSeuratObject(counts = scp.data, project = "SCP1614", min.cells = 3, min.features = 200)
+# 质量控制
+scp[["percent.mt"]] <- PercentageFeatureSet(scp, pattern = "^mt")
+VlnPlot(scp, features = c("nCount_RNA", "nFeature_RNA", "percent.mt"), ncol = 3)
+scp <- subset(scp, subset = nFeature_RNA > 200 & nFeature_RNA < 4000 & percent.mt < 10)
+# 数据归一化处理
+scp <- NormalizeData(scp, normalization.method = "LogNormalize", scale.factor = 10000)
+scp.genes <- rownames(scp)
+# 提取Cd11b+或者Cd11c+的cluster并降维聚类
+Cd11b <- FetchData(scp, vars = "Itgam")
+Cd11c <- FetchData(scp, vars = "Itgax")
+bothcell <- union(rownames(Cd11b)[Cd11b$Itgam>0], rownames(Cd11c)[Cd11c$Itgax>0])
+Idents(scp, cells = bothcell) <- "Cd11borCd11c+"
+scpsub <- subset(scp, idents = "Cd11borCd11c+")
+scpsub <- FindVariableFeatures(scpsub, selection.method = "vst", nfeatures = 2000)
+scpsub <- ScaleData(scpsub, features = scp.genes)
+scpsub <- RunPCA(scpsub, features = VariableFeatures(object = scpsub))
+scpsub <- FindNeighbors(object = scpsub, dims = 1:10)
+scpsub <- FindClusters(object = scpsub, resolution = 0.5)
+scpsub <- RunUMAP(scpsub, dims = 1:10)
+scpsub <- RunTSNE(scpsub, dims = 1:10)
+# 数据可视化
+DimPlot(scpsub, reduction = "umap", label = TRUE)
+DimPlot(scpsub, reduction = "tsne", label = TRUE)
+DotPlot(scpsub, features = c("Itgam", "Itgax", "Adgre1", "Ly6c1", "Ly6g", "Cd74", "H2-Aa", "H2-Eb1")) + RotatedAxis()
+
+
+### GSE164403人泪腺数据分析
+# 导入原始数据
+LG.data <- read.table("GSE164403_lacrimal_gland_onlygenename.csv", sep=",", header = TRUE, row.names = 1)
+# 创建Seurat对象
+LG <- CreateSeuratObject(counts = LG.data, min.cells = 3, min.features = 200, project = "LG")
+# 提取部分数据
+LG <- subset(LG, idents = c("HUB.JP.049", "HUB.JP.050", "HUB.JP.051"))
+# 质量控制
+LG[["percent.mt"]] <- PercentageFeatureSet(LG, pattern = "^MT-")
+VlnPlot(LG, features = c("nCount_RNA", "nFeature_RNA", "percent.mt"), ncol = 3)
+LG <- subset(LG, subset = nFeature_RNA > 200 & nFeature_RNA < 5000 & percent.mt < 15)
+# 数据处理
+LG <- NormalizeData(LG, normalization.method = "LogNormalize", scale.factor = 10000)
+LG <- FindVariableFeatures(LG, selection.method = "vst", nfeatures = 2000)
+LG <- ScaleData(LG, vars.to.regress = "percent.mt")
+LG <- RunPCA(LG, features = VariableFeatures(object = LG))
+LG <- FindNeighbors(object = LG, dims = 1:10)
+LG <- FindClusters(object = LG, resolution = 0.5)
+LG <- RunUMAP(LG, dims = 1:10)
+# 计算各群标志基因
+all_markers <- FindAllMarkers(LG)
+write.table(all_markers, file = "LG_allmarkers.txt", sep = "\t", quote = F, col.names = NA)
+# 参考http://bio-bigdata.hrbmu.edu.cn/CellMarker/定义细胞群
+new.cluster.ids <- c("acinar cells", "myoepithelial cells", "acinar cells", "immune cells", "undefined", "ductal cells")
+names(new.cluster.ids) <- levels(LG)
+LG <- RenameIdents(LG, new.cluster.ids)
+# 数据可视化
+DimPlot(LG, pt.size = 2,reduction = "umap",label = TRUE,label.size = 10) + NoLegend()
+# 查看每群的细胞数量
+table(Idents(LG))
+# 提取免疫细胞亚群进一步分析
+IC <- subset(LG, idents = c("immune cells"))
+IC <- FindVariableFeatures(IC, selection.method = "vst", nfeatures = 2000)
+IC <- ScaleData(IC, vars.to.regress = "percent.mt")
+IC <- RunPCA(IC, features = VariableFeatures(object = IC))
+IC <- FindNeighbors(object = IC, dims = 1:20)
+IC <- FindClusters(object = IC, resolution = 1)
+IC <- RunUMAP(IC, dims = 1:20)
+# 计算各群标志基因
+IC_allmarkers <- FindAllMarkers(IC)
+top10 <- IC_allmarkers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+IC_Heat <- DoHeatmap(IC, features = top10$gene) + NoLegend()
+# 定义免疫细胞亚群
+new.cluster.ids <- c("NHE-7+CD8+T", "CD8+T", "CD4+T")
+names(new.cluster.ids) <- levels(IC)
+IC <- RenameIdents(IC, new.cluster.ids)
+# 数据可视化
+DimPlot(IC, reduction = "umap", label = TRUE, pt.size = 1.5, label.size = 5) + NoLegend()
